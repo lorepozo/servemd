@@ -1,0 +1,5 @@
+dir: docs
+port: 8000
+template: md.tpl
+secrets:
+  _: password
