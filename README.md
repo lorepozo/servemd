@@ -48,9 +48,10 @@ secrets:
 The template file uses the format described in
 [text/template](http://golang.org/pkg/text/template).
 
-__`servemd`__ first authenticates using HTTP Digest Access Authentication if
-necessary. Literal matches to the path are served first, followed by files
-matching an implicit extension, and finally a directory index if applicable.
+__`servemd`__ first authenticates using HTTP Digest Access Authentication
+([RFC 2617](https://tools.ietf.org/html/rfc2617)) if necessary. Literal
+matches to the path are served first, followed by files matching an
+implicit extension, and finally a directory index if applicable.
 
 Markdown is parsed using
 [blackfriday](https://github.com/russross/blackfriday)'s `MarkdownCommon`
