@@ -17,6 +17,10 @@ follows:
 └── settings.yaml
 ```
 
+This would serve paths `/`, `/paper`, `/paper.pdf`, `/page`, `/video`, etc.
+The path `/secret` (and any requests therein), if secured according to the
+settings file (see below), will require password authentication to view.
+
 ## Installation
 
 ```
@@ -41,8 +45,8 @@ secrets:
   other_dir: other_password
 ```
 
-The template file uses the format described at
-[golang.org/pkg/text/template](http://golang.org/pkg/text/template).
+The template file uses the format described in
+[text/template](http://golang.org/pkg/text/template).
 
 __`servemd`__ first authenticates using HTTP Digest Access Authentication if
 necessary. Literal matches to the path are served first, followed by files
