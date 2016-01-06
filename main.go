@@ -254,11 +254,13 @@ func main() {
 	mdTemplate = template.New("tpl")
 	tpl, err := ioutil.ReadFile(st.Template)
 	if err != nil {
-		os.Exit(3) // could not load template
+		// couldn't load template
+		os.Exit(4)
 	}
 	_, err = mdTemplate.Parse(string(tpl))
 	if err != nil {
-		os.Exit(4) // could not parse template
+		// couldn't parse template
+		os.Exit(5)
 	}
 	st.toServer().serve()
 }
