@@ -182,6 +182,12 @@ func (s *server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// directory requested, force trailing "/"
+	if !strings.HasSuffix(req.URL.Path, "/") {
+		http.Redirect(w, req, req.URL.Path+"/", http.StatusMovedPermanently)
+		return
+	}
+
 	// serve directory index
 	files, _ = ioutil.ReadDir(path)
 	// find first file matching index.*
