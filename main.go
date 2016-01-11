@@ -20,7 +20,9 @@ package main
 import (
 	"crypto/md5"
 	"fmt"
+	"io"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"os"
 	fp "path/filepath"
@@ -31,6 +33,8 @@ import (
 	"github.com/russross/blackfriday"
 	"gopkg.in/yaml.v2"
 )
+
+const logf = "[%s %s] %d: %s"
 
 var mdTemplate *template.Template
 
@@ -94,18 +98,19 @@ func (s *server) checkAuth(req *http.Request, route string) bool {
 // sendChallenge sends an authentication request according to the Digest
 // Access Authentication scheme per RFC 2617 using the WWW-Authenticate
 // header.
-func (s *server) sendChallenge(w http.ResponseWriter, route string) {
+func (s *server) sendChallenge(w http.ResponseWriter, req *http.Request, route string) {
 	realm := fmt.Sprintf(`realm="%s-%s"`, s.Host, route)
 	qop := `qop="auth,auth-int"`
 	nonce := fmt.Sprintf(`nonce="%x"`, time.Now())
 	challenge := strings.Join([]string{realm, qop, nonce}, ", ")
 	w.Header().Set("WWW-Authenticate", "Digest "+challenge)
-	http.Error(w, "Unauthorized", 401)
+	http.Error(w, "Unauthorized", http.StatusUnauthorized)
+	log.Printf(logf, req.Method, req.URL.Path, http.StatusUnauthorized, "challenge sent")
 }
 
 // serve runs the http server on the specified port.
 func (s *server) serve() {
-	http.ListenAndServe(":"+s.Port, s)
+	log.Fatal(http.ListenAndServe(":"+s.Port, s))
 }
 
 // ServeHTTP handles requests. It first authenticates using Digest Access
@@ -121,7 +126,7 @@ func (s *server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			if isSecret {
 				ok := s.checkAuth(req, route)
 				if !ok {
-					s.sendChallenge(w, route)
+					s.sendChallenge(w, req, route)
 					return
 				}
 			}
@@ -134,6 +139,7 @@ func (s *server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		if !fi.IsDir() {
 			// literal file exists
 			http.ServeFile(w, req, path)
+			log.Printf(logf, req.Method, req.URL.Path, http.StatusOK, "serving "+path)
 			return
 		}
 	}
@@ -141,6 +147,7 @@ func (s *server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	files, err := ioutil.ReadDir(fp.Dir(path))
 	if err != nil {
 		http.Error(w, "Not Found", http.StatusNotFound)
+		log.Printf(logf, req.Method, req.URL.Path, http.StatusNotFound, "")
 		return
 	}
 
@@ -165,13 +172,16 @@ func (s *server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			md, err := ioutil.ReadFile(mdfile)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
+				log.Printf(logf, req.Method, req.URL.Path, http.StatusInternalServerError, err.Error())
 				return
 			}
 			out := blackfriday.MarkdownCommon(md)
 			content := &templateContent{string(out)}
 			mdTemplate.Execute(w, content)
+			log.Printf(logf, req.Method, req.URL.Path, http.StatusOK, "markdown "+mdfile)
 		} else {
 			http.ServeFile(w, req, mdfile)
+			log.Printf(logf, req.Method, req.URL.Path, http.StatusOK, "serving "+path)
 		}
 		return
 	}
@@ -179,12 +189,14 @@ func (s *server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	fi, err = os.Stat(path)
 	if err != nil {
 		http.Error(w, "Not found", http.StatusNotFound)
+		log.Printf(logf, req.Method, req.URL.Path, http.StatusNotFound, "")
 		return
 	}
 
 	// directory requested, force trailing "/"
 	if !strings.HasSuffix(req.URL.Path, "/") {
 		http.Redirect(w, req, req.URL.Path+"/", http.StatusMovedPermanently)
+		log.Printf(logf, req.Method, req.URL.Path, http.StatusMovedPermanently, "")
 		return
 	}
 
@@ -210,18 +222,22 @@ func (s *server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			md, err := ioutil.ReadFile(mdfile)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
+				log.Printf(logf, req.Method, req.URL.Path, http.StatusInternalServerError, err.Error())
 				return
 			}
 			out := blackfriday.MarkdownCommon(md)
 			content := &templateContent{string(out)}
 			mdTemplate.Execute(w, content)
+			log.Printf(logf, req.Method, req.URL.Path, http.StatusOK, "markdown "+mdfile)
 		} else {
 			http.ServeFile(w, req, mdfile)
+			log.Printf(logf, req.Method, req.URL.Path, http.StatusOK, "serving "+path)
 		}
 		return
 	}
 
 	http.Error(w, "Not found", http.StatusNotFound)
+	log.Printf(logf, req.Method, req.URL.Path, http.StatusNotFound, "")
 }
 
 // settings is unmarshalled from a yaml file according to this
@@ -230,12 +246,13 @@ type settings struct {
 	Dir      string
 	Port     string
 	Template string
+	Log      string
 	Secrets  map[string]string
 }
 
 // toServer creates a server from the settings struct. The server host is
 // determined using the host name reported by the kernel.
-func (st settings) toServer() *server {
+func (st settings) toServer(logFile io.Writer) *server {
 	s := new(server)
 	s.Path = st.Dir
 	s.Port = st.Port
@@ -273,6 +290,9 @@ func main() {
 	if !fp.IsAbs(st.Template) {
 		st.Template = fp.Join(stpath, st.Template)
 	}
+	if st.Log != "" && !fp.IsAbs(st.Log) {
+		st.Log = fp.Join(stpath, st.Log)
+	}
 
 	mdTemplate = template.New("tpl")
 	tpl, err := ioutil.ReadFile(st.Template)
@@ -285,5 +305,15 @@ func main() {
 		// couldn't parse template
 		os.Exit(5)
 	}
-	st.toServer().serve()
+	logFile := os.Stderr
+	if st.Log != "" {
+		f, err := os.OpenFile(st.Log, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
+		if err == nil {
+			defer f.Close()
+			logFile = f
+		}
+	}
+	log.SetOutput(logFile)
+	log.SetFlags(log.LstdFlags | log.Lshortfile)
+	st.toServer(logFile).serve()
 }

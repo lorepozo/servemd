@@ -1,5 +1,6 @@
 dir: docs
 port: 8000
 template: md.tpl
+log: example.log
 secrets:
   _: password
