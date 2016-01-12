@@ -36,8 +36,6 @@ import (
 
 const logf = "[%s %s] %d: %s"
 
-var mdTemplate *template.Template
-
 type templateContent struct {
 	Content string
 }
@@ -67,6 +65,9 @@ type server struct {
 
 	// Secret maps secured routes to their corresponding passwords.
 	Secret map[string]string
+
+	// mdTemplate for HTML generated from Markdown
+	mdTemplate *template.Template
 }
 
 // checkAuth validates a request for proper authentication, given that the
@@ -177,7 +178,7 @@ func (s *server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			}
 			out := blackfriday.MarkdownCommon(md)
 			content := &templateContent{string(out)}
-			mdTemplate.Execute(w, content)
+			s.mdTemplate.Execute(w, content)
 			log.Printf(logf, req.Method, req.URL.Path, http.StatusOK, "markdown "+mdfile)
 		} else {
 			http.ServeFile(w, req, mdfile)
@@ -227,7 +228,7 @@ func (s *server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			}
 			out := blackfriday.MarkdownCommon(md)
 			content := &templateContent{string(out)}
-			mdTemplate.Execute(w, content)
+			s.mdTemplate.Execute(w, content)
 			log.Printf(logf, req.Method, req.URL.Path, http.StatusOK, "markdown "+mdfile)
 		} else {
 			http.ServeFile(w, req, mdfile)
@@ -262,6 +263,17 @@ func (st settings) toServer(logFile io.Writer) *server {
 	} else {
 		s.Host = host
 	}
+	s.mdTemplate = template.New("tpl")
+	tpl, err := ioutil.ReadFile(st.Template)
+	if err != nil {
+		// couldn't load template
+		os.Exit(4)
+	}
+	_, err = s.mdTemplate.Parse(string(tpl))
+	if err != nil {
+		// couldn't parse template
+		os.Exit(5)
+	}
 	s.Secret = st.Secrets
 	return s
 }
@@ -294,17 +306,6 @@ func main() {
 		st.Log = fp.Join(stpath, st.Log)
 	}
 
-	mdTemplate = template.New("tpl")
-	tpl, err := ioutil.ReadFile(st.Template)
-	if err != nil {
-		// couldn't load template
-		os.Exit(4)
-	}
-	_, err = mdTemplate.Parse(string(tpl))
-	if err != nil {
-		// couldn't parse template
-		os.Exit(5)
-	}
 	logFile := os.Stderr
 	if st.Log != "" {
 		f, err := os.OpenFile(st.Log, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
