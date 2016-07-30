@@ -1,6 +1,7 @@
 # index
 
-Check out [other](other). Also, take a look at the secret directory [_](_).
+Check out [other](other). Also, take a look at the secret directory [_](_)
+(the password is `password`).
 
 ## Showing Off
 

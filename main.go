@@ -53,6 +53,12 @@ func parseHeader(s string) map[string]string {
 	return result
 }
 
+const (
+	RequiredNone = iota
+	RequiredSecrets
+	RequiredAll
+)
+
 type server struct {
 	// Path is the absolute path to the directory being served.
 	Path string
@@ -66,8 +72,26 @@ type server struct {
 	// Secret maps secured routes to their corresponding passwords.
 	Secret map[string]string
 
-	// mdTemplate for HTML generated from Markdown
+	// mdTemplate for HTML generated from Markdown.
 	mdTemplate *template.Template
+
+	// TLS maintains information for a supplementary TLS server.
+	TLS struct {
+		// Do is whether a second server should be made with TLS.
+		Do bool
+
+		// Port is the port on which the TLS server is being hosted.
+		Port string
+
+		// Required specifies the necessity of TLS to view resources.
+		Required int
+
+		// cert is the file name of the certificate for the server.
+		cert string
+
+		// key is the file name of the private key for the server.
+		key string
+	}
 }
 
 // checkAuth validates a request for proper authentication, given that the
@@ -111,7 +135,20 @@ func (s *server) sendChallenge(w http.ResponseWriter, req *http.Request, route s
 
 // serve runs the http server on the specified port.
 func (s *server) serve() {
-	log.Fatal(http.ListenAndServe(":"+s.Port, s))
+	if s.TLS.Do {
+		go func() {
+			log.Printf("starting HTTPS server on port %s", s.TLS.Port)
+			log.Fatal(http.ListenAndServeTLS(":"+s.TLS.Port, s.TLS.cert, s.TLS.key, s))
+		}()
+	}
+	if s.TLS.Required != RequiredAll {
+		go func() {
+			log.Printf("starting HTTP server on port %s", s.Port)
+			log.Fatal(http.ListenAndServe(":"+s.Port, s))
+		}()
+	}
+	// wait forever
+	<-make(chan struct{})
 }
 
 // ServeHTTP handles requests. It first authenticates using Digest Access
@@ -119,12 +156,19 @@ func (s *server) serve() {
 // first, followed by files matching an implicit extension, and finally
 // a directory index if applicable.
 func (s *server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	if s.checkTLSRedirect(w, req, RequiredAll) {
+		return
+	}
+
 	if len(req.URL.Path) > 1 {
 		splits := strings.Split(req.URL.Path, "/")
 		if len(splits) > 1 {
 			route := splits[1]
 			_, isSecret := s.Secret[route]
 			if isSecret {
+				if s.checkTLSRedirect(w, req, RequiredSecrets) {
+					return
+				}
 				ok := s.checkAuth(req, route)
 				if !ok {
 					s.sendChallenge(w, req, route)
@@ -241,14 +285,29 @@ func (s *server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	log.Printf(logf, req.Method, req.URL.Path, http.StatusNotFound, "")
 }
 
+func (s *server) checkTLSRedirect(w http.ResponseWriter, req *http.Request, cond int) bool {
+	if s.TLS.Required != cond || req.TLS != nil {
+		return false
+	}
+	http.Redirect(w, req, fmt.Sprintf("https://%s%s", s.Host, req.URL.Path), http.StatusSeeOther)
+	return true
+}
+
 // settings is unmarshalled from a yaml file according to this
 // specification.
 type settings struct {
-	Dir      string
-	Port     string
-	Template string
-	Log      string
-	Secrets  map[string]string
+	Host     string            // optional, defaults to kernal-reported hostname
+	Dir      string            // optional, defaults to directory of settings file
+	Port     string            // optional, defaults to '80'
+	Template string            // required
+	Log      string            // optional, defaults to stdout
+	Secrets  map[string]string // optional
+	TLS      struct {          // optional
+		Required string // optional, 'all' or 'secrets'
+		Port     string // optional, defaults to '443'
+		Cert     string // required for TLS
+		Privkey  string // required for TLS
+	} `yaml:"tls"`
 }
 
 // toServer creates a server from the settings struct. The server host is
@@ -257,11 +316,16 @@ func (st settings) toServer(logFile io.Writer) *server {
 	s := new(server)
 	s.Path = st.Dir
 	s.Port = st.Port
-	host, err := os.Hostname()
-	if err != nil {
-		s.Host = "localhost"
-	} else {
-		s.Host = host
+	if s.Port == "" && st.TLS.Required != "all" {
+		s.Port = "80"
+	}
+	s.Host = st.Host
+	if s.Host == "" {
+		if host, err := os.Hostname(); err == nil {
+			s.Host = host
+		} else {
+			s.Host = "localhost"
+		}
 	}
 	s.mdTemplate = template.New("tpl")
 	tpl, err := ioutil.ReadFile(st.Template)
@@ -275,6 +339,28 @@ func (st settings) toServer(logFile io.Writer) *server {
 		os.Exit(5)
 	}
 	s.Secret = st.Secrets
+
+	s.TLS.Do = st.TLS.Cert != "" && st.TLS.Privkey != ""
+	if !s.TLS.Do {
+		return s
+	}
+	s.TLS.Port = st.TLS.Port
+	if s.TLS.Port == "" {
+		s.TLS.Port = "443"
+	}
+	s.TLS.cert = st.TLS.Cert
+	s.TLS.key = st.TLS.Privkey
+	switch st.TLS.Required {
+	case "":
+		s.TLS.Required = RequiredNone
+	case "secrets":
+		s.TLS.Required = RequiredSecrets
+	case "all":
+		s.TLS.Required = RequiredAll
+	default:
+		// bad 'TLS.Required' field
+		os.Exit(6)
+	}
 	return s
 }
 
@@ -304,6 +390,12 @@ func main() {
 	}
 	if st.Log != "" && !fp.IsAbs(st.Log) {
 		st.Log = fp.Join(stpath, st.Log)
+	}
+	if st.TLS.Cert != "" && !fp.IsAbs(st.TLS.Cert) {
+		st.TLS.Cert = fp.Join(stpath, st.TLS.Cert)
+	}
+	if st.TLS.Privkey != "" && !fp.IsAbs(st.TLS.Privkey) {
+		st.TLS.Privkey = fp.Join(stpath, st.TLS.Privkey)
 	}
 
 	logFile := os.Stderr
