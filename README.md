@@ -59,8 +59,8 @@ The template file uses the format described in
 [text/template](http://golang.org/pkg/text/template) with `{{ .Content }}`
 substituted by the HTML from converted markdown.
 
-When specifying TLS, two servers (one HTTP and one HTTPS) will be spawned if
-and only if `tls.required` is _not_ set to `all`.
+When specifying TLS, two servers (one HTTP and one HTTPS) will be spawned
+unless `tls.only` is set to `true`.
 
 __`servemd`__ first authenticates using HTTP Digest Access Authentication
 ([RFC 2617](https://tools.ietf.org/html/rfc2617)) if necessary. Literal

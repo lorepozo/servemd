@@ -77,9 +77,6 @@ type server struct {
 
 	// TLS maintains information for a supplementary TLS server.
 	TLS struct {
-		// Do is whether a second server should be made with TLS.
-		Do bool
-
 		// Port is the port on which the TLS server is being hosted.
 		Port string
 
@@ -135,13 +132,13 @@ func (s *server) sendChallenge(w http.ResponseWriter, req *http.Request, route s
 
 // serve runs the http server on the specified port.
 func (s *server) serve() {
-	if s.TLS.Do {
+	if s.TLS.Port != "" {
 		go func() {
 			log.Printf("starting HTTPS server on port %s", s.TLS.Port)
 			log.Fatal(http.ListenAndServeTLS(":"+s.TLS.Port, s.TLS.cert, s.TLS.key, s))
 		}()
 	}
-	if s.TLS.Required != RequiredAll {
+	if s.Port != "" {
 		go func() {
 			log.Printf("starting HTTP server on port %s", s.Port)
 			log.Fatal(http.ListenAndServe(":"+s.Port, s))
@@ -156,6 +153,9 @@ func (s *server) serve() {
 // first, followed by files matching an implicit extension, and finally
 // a directory index if applicable.
 func (s *server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	if s.TLS.Port != "" {
+		w.Header().Add("Strict-Transport-Security", "max-age=63072000")
+	}
 	if s.checkTLSRedirect(w, req, RequiredAll) {
 		return
 	}
@@ -303,6 +303,7 @@ type settings struct {
 	Log      string            // optional, defaults to stdout
 	Secrets  map[string]string // optional
 	TLS      struct {          // optional
+		Only     bool   // optional
 		Required string // optional, 'all' or 'secrets'
 		Port     string // optional, defaults to '443'
 		Cert     string // required for TLS
@@ -315,9 +316,11 @@ type settings struct {
 func (st settings) toServer(logFile io.Writer) *server {
 	s := new(server)
 	s.Path = st.Dir
-	s.Port = st.Port
-	if s.Port == "" && st.TLS.Required != "all" {
-		s.Port = "80"
+	if !st.TLS.Only {
+		s.Port = st.Port
+		if s.Port == "" {
+			s.Port = "80"
+		}
 	}
 	s.Host = st.Host
 	if s.Host == "" {
@@ -340,8 +343,8 @@ func (st settings) toServer(logFile io.Writer) *server {
 	}
 	s.Secret = st.Secrets
 
-	s.TLS.Do = st.TLS.Cert != "" && st.TLS.Privkey != ""
-	if !s.TLS.Do {
+	doTLS := st.TLS.Cert != "" && st.TLS.Privkey != ""
+	if !doTLS {
 		return s
 	}
 	s.TLS.Port = st.TLS.Port
