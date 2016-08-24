@@ -19,13 +19,13 @@ package main
 
 import (
 	"bytes"
-	"html/template"
 	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
 	"strings"
+	"text/template"
 	"time"
 )
 
