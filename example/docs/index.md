@@ -10,7 +10,7 @@ Check out [other](other). Also, take a look at the secret directory [_](_)
 1. inline `code`
 2. also ~~strikethroughs~~
    - en- and em-dashes -- ---
-   - URLs http://docs.lucasem.com
+   - URLs https://docs.lucasem.com
 3. tables
 4. fenced blocks!
 

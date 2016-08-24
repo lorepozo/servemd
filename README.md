@@ -1,10 +1,11 @@
 # servemd
 
-__`servemd`__ is a minimal server which supports markdown, authentication
-for secured paths, and (optionally) TLS. Files are served in accordance with
-their MIME type, allowing for native viewing (e.g. PDFs or videos on
-mobile). The example directory shows typical usage (viewable live
-[here](http://docs.lucasem.com:8000)), which could look as follows:
+__`servemd`__ is an HTTP(S) server which supports markdown, jade,
+authentication for secured paths, caching, and (optionally) TLS. Files are
+served in accordance with their MIME type, allowing for native viewing (e.g.
+PDFs or videos on mobile). The example directory shows typical usage
+(viewable live [here](https://docs.lucasem.com:8000)), which could look as
+follows:
 
 ```
 .
@@ -39,7 +40,9 @@ servemd settings.yaml
 The settings.yaml file specifies the location of the serving directory and
 the markdown template, as well as the port and any secured root paths. If
 you want to use HTTPS/TLS, you can also specify the certificate and matching
-private key.
+private key. The ttl option, if set and non-zero, initializes the server
+with a cache, and sets its time-to-live in minutes. If ttl is negative, the
+cache will never expire any response.
 ```yaml
 dir: path/to/docs
 port: 80                       # optional, defaults to 80
