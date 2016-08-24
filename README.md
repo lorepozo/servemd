@@ -45,6 +45,7 @@ dir: path/to/docs
 port: 80                       # optional, defaults to 80
 host: localhost                # optional, defaults to kernel-reported hostname
 template: path/to/md.tpl
+ttl: 240                       # optional, defaults to 0 (in minutes)
 secrets:                       # optional
   my_dir: my_password
   other_dir: other_password

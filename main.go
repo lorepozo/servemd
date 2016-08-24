@@ -31,6 +31,7 @@ import (
 	"time"
 
 	"github.com/Joker/jade"
+	"github.com/patrickmn/go-cache"
 	"github.com/russross/blackfriday"
 	"gopkg.in/yaml.v2"
 )
@@ -60,6 +61,27 @@ const (
 	RequiredAll
 )
 
+func handlerNotFound() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "Not Found", http.StatusNotFound)
+		log.Printf(logf, r.Method, r.URL.Path, http.StatusNotFound, "")
+	}
+}
+
+func handlerInternalError(err error) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf(logf, r.Method, r.URL.Path, http.StatusInternalServerError, err.Error())
+	}
+}
+
+func handlerLiteralFile(path string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFile(w, r, path)
+		log.Printf(logf, r.Method, r.URL.Path, http.StatusOK, "serving "+path)
+	}
+}
+
 type server struct {
 	// Path is the absolute path to the directory being served.
 	Path string
@@ -73,8 +95,12 @@ type server struct {
 	// Secret maps secured routes to their corresponding passwords.
 	Secret map[string]string
 
-	// mdTemplate for HTML generated from Markdown.
-	mdTemplate *template.Template
+	// MdTemplate for HTML generated from Markdown.
+	MdTemplate *template.Template
+
+	// TTL is the time-to-live for the cache. If nil, no caching is done.
+	TTL   *time.Duration
+	cache *cache.Cache
 
 	// TLS maintains information for a supplementary TLS server.
 	TLS struct {
@@ -133,6 +159,12 @@ func (s *server) sendChallenge(w http.ResponseWriter, req *http.Request, route s
 
 // serve runs the http server on the specified port.
 func (s *server) serve() {
+	if s.TTL != nil {
+		s.cache = cache.New(*s.TTL, time.Minute)
+		s.cache.OnEvicted(func(key string, _ interface{}) {
+			log.Printf("removed cached item for %s", key)
+		})
+	}
 	if s.TLS.Port != "" {
 		go func() {
 			log.Printf("starting HTTPS server on port %s", s.TLS.Port)
@@ -150,29 +182,38 @@ func (s *server) serve() {
 }
 
 func (s *server) serveFilteredFile(w http.ResponseWriter, req *http.Request, filename string) {
+	var h http.HandlerFunc
+	defer func() {
+		if s.cache != nil {
+			s.cache.Set(req.URL.Path, h, cache.DefaultExpiration)
+		}
+		h(w, req)
+	}()
 	switch {
 	case strings.HasSuffix(filename, ".md"):
 		md, err := ioutil.ReadFile(filename)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			log.Printf(logf, req.Method, req.URL.Path, http.StatusInternalServerError, err.Error())
+			h = handlerInternalError(err)
 			return
 		}
 		out := blackfriday.MarkdownCommon(md)
 		content := &templateContent{string(out)}
-		s.mdTemplate.Execute(w, content)
-		log.Printf(logf, req.Method, req.URL.Path, http.StatusOK, "markdown "+filename)
+		h = func(w http.ResponseWriter, r *http.Request) {
+			s.MdTemplate.Execute(w, content)
+			log.Printf(logf, r.Method, r.URL.Path, http.StatusOK, "markdown "+filename)
+		}
 	case strings.HasSuffix(filename, ".jade"):
 		out, err := jade.ParseFile(filename)
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			log.Printf(logf, req.Method, req.URL.Path, http.StatusInternalServerError, err.Error())
+			h = handlerInternalError(err)
+			return
 		}
-		io.WriteString(w, out)
-		log.Printf(logf, req.Method, req.URL.Path, http.StatusOK, "jade "+filename)
+		h = func(w http.ResponseWriter, r *http.Request) {
+			io.WriteString(w, out)
+			log.Printf(logf, r.Method, r.URL.Path, http.StatusOK, "jade "+filename)
+		}
 	default:
-		http.ServeFile(w, req, filename)
-		log.Printf(logf, req.Method, req.URL.Path, http.StatusOK, "serving "+filename)
+		h = handlerLiteralFile(filename)
 	}
 }
 
@@ -206,21 +247,36 @@ func (s *server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		}
 	}
 
+	if s.cache != nil {
+		h, ok := s.cache.Get(req.URL.Path)
+		if ok {
+			log.Printf("found in cache: %s", req.URL.Path)
+			h.(http.HandlerFunc)(w, req)
+			return
+		}
+	}
+
 	path := fp.Join(s.Path, req.URL.Path)
 	fi, err := os.Stat(path)
 	if err == nil {
 		if !fi.IsDir() {
 			// literal file exists
-			http.ServeFile(w, req, path)
-			log.Printf(logf, req.Method, req.URL.Path, http.StatusOK, "serving "+path)
+			h := handlerLiteralFile(path)
+			if s.cache != nil {
+				s.cache.Set(req.URL.Path, h, cache.DefaultExpiration)
+			}
+			h(w, req)
 			return
 		}
 	}
 
 	files, err := ioutil.ReadDir(fp.Dir(path))
 	if err != nil {
-		http.Error(w, "Not Found", http.StatusNotFound)
-		log.Printf(logf, req.Method, req.URL.Path, http.StatusNotFound, "")
+		h := handlerNotFound()
+		if s.cache != nil {
+			s.cache.Set(req.URL.Path, h, cache.DefaultExpiration)
+		}
+		h(w, req)
 		return
 	}
 
@@ -247,15 +303,24 @@ func (s *server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	fi, err = os.Stat(path)
 	if err != nil {
-		http.Error(w, "Not found", http.StatusNotFound)
-		log.Printf(logf, req.Method, req.URL.Path, http.StatusNotFound, "")
+		h := handlerNotFound()
+		if s.cache != nil {
+			s.cache.Set(req.URL.Path, h, cache.DefaultExpiration)
+		}
+		h(w, req)
 		return
 	}
 
 	// directory requested, force trailing "/"
 	if !strings.HasSuffix(req.URL.Path, "/") {
-		http.Redirect(w, req, req.URL.Path+"/", http.StatusMovedPermanently)
-		log.Printf(logf, req.Method, req.URL.Path, http.StatusMovedPermanently, "")
+		h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			http.Redirect(w, r, r.URL.Path+"/", http.StatusMovedPermanently)
+			log.Printf(logf, r.Method, r.URL.Path, http.StatusMovedPermanently, "")
+		})
+		if s.cache != nil {
+			s.cache.Set(req.URL.Path, h, cache.DefaultExpiration)
+		}
+		h(w, req)
 		return
 	}
 
@@ -281,8 +346,11 @@ func (s *server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	http.Error(w, "Not found", http.StatusNotFound)
-	log.Printf(logf, req.Method, req.URL.Path, http.StatusNotFound, "")
+	h := handlerNotFound()
+	if s.cache != nil {
+		s.cache.Set(req.URL.Path, h, cache.DefaultExpiration)
+	}
+	h(w, req)
 }
 
 func (s *server) checkTLSRedirect(w http.ResponseWriter, req *http.Request, cond int) bool {
@@ -302,6 +370,7 @@ type settings struct {
 	Template string            // required
 	Log      string            // optional, defaults to stdout
 	Secrets  map[string]string // optional
+	TTL      int               // optional, defaults to '0' minutes
 	TLS      struct {          // optional
 		Only     bool   // optional
 		Required string // optional, 'all' or 'secrets'
@@ -330,18 +399,28 @@ func (st settings) toServer(logFile io.Writer) *server {
 			s.Host = "localhost"
 		}
 	}
-	s.mdTemplate = template.New("tpl")
+	s.MdTemplate = template.New("tpl")
 	tpl, err := ioutil.ReadFile(st.Template)
 	if err != nil {
 		// couldn't load template
 		os.Exit(4)
 	}
-	_, err = s.mdTemplate.Parse(string(tpl))
+	_, err = s.MdTemplate.Parse(string(tpl))
 	if err != nil {
 		// couldn't parse template
 		os.Exit(5)
 	}
 	s.Secret = st.Secrets
+
+	if st.TTL != 0 {
+		var t time.Duration
+		if st.TTL > 0 {
+			t = time.Minute * time.Duration(st.TTL)
+		} else {
+			t = -1
+		}
+		s.TTL = &t
+	}
 
 	doTLS := st.TLS.Cert != "" && st.TLS.Privkey != ""
 	if !doTLS {
