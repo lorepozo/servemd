@@ -30,6 +30,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/Joker/jade"
 	"github.com/russross/blackfriday"
 	"gopkg.in/yaml.v2"
 )
@@ -148,6 +149,33 @@ func (s *server) serve() {
 	<-make(chan struct{})
 }
 
+func (s *server) serveFilteredFile(w http.ResponseWriter, req *http.Request, filename string) {
+	switch {
+	case strings.HasSuffix(filename, ".md"):
+		md, err := ioutil.ReadFile(filename)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			log.Printf(logf, req.Method, req.URL.Path, http.StatusInternalServerError, err.Error())
+			return
+		}
+		out := blackfriday.MarkdownCommon(md)
+		content := &templateContent{string(out)}
+		s.mdTemplate.Execute(w, content)
+		log.Printf(logf, req.Method, req.URL.Path, http.StatusOK, "markdown "+filename)
+	case strings.HasSuffix(filename, ".jade"):
+		out, err := jade.ParseFile(filename)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			log.Printf(logf, req.Method, req.URL.Path, http.StatusInternalServerError, err.Error())
+		}
+		io.WriteString(w, out)
+		log.Printf(logf, req.Method, req.URL.Path, http.StatusOK, "jade "+filename)
+	default:
+		http.ServeFile(w, req, filename)
+		log.Printf(logf, req.Method, req.URL.Path, http.StatusOK, "serving "+filename)
+	}
+}
+
 // ServeHTTP handles requests. It first authenticates using Digest Access
 // Authentication if necessary. Literal matches to the path are served
 // first, followed by files matching an implicit extension, and finally
@@ -212,22 +240,8 @@ func (s *server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 	if filtered != "" {
 		// matching file found
-		mdfile := fp.Join(fp.Dir(path), filtered)
-		if strings.HasSuffix(filtered, ".md") {
-			md, err := ioutil.ReadFile(mdfile)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				log.Printf(logf, req.Method, req.URL.Path, http.StatusInternalServerError, err.Error())
-				return
-			}
-			out := blackfriday.MarkdownCommon(md)
-			content := &templateContent{string(out)}
-			s.mdTemplate.Execute(w, content)
-			log.Printf(logf, req.Method, req.URL.Path, http.StatusOK, "markdown "+mdfile)
-		} else {
-			http.ServeFile(w, req, mdfile)
-			log.Printf(logf, req.Method, req.URL.Path, http.StatusOK, "serving "+path)
-		}
+		filename := fp.Join(fp.Dir(path), filtered)
+		s.serveFilteredFile(w, req, filename)
 		return
 	}
 
@@ -262,22 +276,8 @@ func (s *server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 	if filtered != "" {
 		// matching file found
-		mdfile := fp.Join(path, filtered)
-		if strings.HasSuffix(filtered, ".md") {
-			md, err := ioutil.ReadFile(mdfile)
-			if err != nil {
-				http.Error(w, err.Error(), http.StatusInternalServerError)
-				log.Printf(logf, req.Method, req.URL.Path, http.StatusInternalServerError, err.Error())
-				return
-			}
-			out := blackfriday.MarkdownCommon(md)
-			content := &templateContent{string(out)}
-			s.mdTemplate.Execute(w, content)
-			log.Printf(logf, req.Method, req.URL.Path, http.StatusOK, "markdown "+mdfile)
-		} else {
-			http.ServeFile(w, req, mdfile)
-			log.Printf(logf, req.Method, req.URL.Path, http.StatusOK, "serving "+path)
-		}
+		filename := fp.Join(path, filtered)
+		s.serveFilteredFile(w, req, filename)
 		return
 	}
 
