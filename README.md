@@ -4,7 +4,8 @@ __`servemd`__ is a minimal server which supports markdown and authentication
 for secured paths. Requests are routed with implicit extensions if not
 explicitly provided. Files are served in accordance with their MIME type,
 allowing for native viewing (e.g. PDFs or videos on mobile).
-The example directory shows typical usage, which could look as follows:
+The example directory shows typical usage (viewable live
+[here](http://docs.lucasem.com:8000)), which could look as follows:
 
 ```
 .
