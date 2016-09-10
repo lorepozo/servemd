@@ -208,17 +208,22 @@ func (s *server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 
 	path := fp.Join(s.path, req.URL.Path)
-	fi, err := os.Stat(path)
+
+	// follow symbolic links
+	link, err := os.Readlink(path)
 	if err == nil {
-		if !fi.IsDir() {
-			// literal file exists
-			h := handlerLiteralFile(path)
-			if s.cache != nil {
-				s.cache.Set(req.URL.Path, h, cache.DefaultExpiration)
-			}
-			h(w, req)
-			return
+		path = link
+	}
+
+	// serve literal files
+	fi, err := os.Stat(path)
+	if err == nil && !fi.IsDir() {
+		h := handlerLiteralFile(path)
+		if s.cache != nil {
+			s.cache.Set(req.URL.Path, h, cache.DefaultExpiration)
 		}
+		h(w, req)
+		return
 	}
 
 	files, err := ioutil.ReadDir(fp.Dir(path))
