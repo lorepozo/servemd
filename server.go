@@ -176,13 +176,15 @@ func (s *server) serveFilteredFile(w http.ResponseWriter, req *http.Request, fil
 		rd := bytes.NewReader(buf.Bytes())
 		h = handlerReader("markdown "+filename, rd)
 	case strings.HasSuffix(filename, ".jade"):
+		fallthrough
+	case strings.HasSuffix(filename, ".pug"):
 		out, err := jade.ParseFile(filename)
 		if err != nil {
 			h = handlerInternalError(err)
 			return
 		}
 		rd := bytes.NewReader([]byte(out))
-		h = handlerReader("jade "+filename, rd)
+		h = handlerReader("pug "+filename, rd)
 	default:
 		h = handlerLiteralFile(filename)
 	}
