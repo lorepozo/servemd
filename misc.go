@@ -31,6 +31,11 @@ import (
 
 const logf = "[%s %s] %d: %s"
 
+const defaultTpl = `<!doctype html><html>
+<head><meta http-equiv="content-type" content="text/html; charset=utf-8"></head>
+<body>{{ .Content }}</body>
+</html>`
+
 type templateContent struct {
 	Content string
 }
@@ -123,14 +128,12 @@ func (st settings) toServer(logFile io.Writer) *server {
 	}
 	s.mdTemplate = template.New("tpl")
 	tpl, err := ioutil.ReadFile(st.Template)
-	if err != nil {
-		// couldn't load template
-		os.Exit(4)
+	if err == nil {
+		_, err = s.mdTemplate.Parse(string(tpl))
 	}
-	_, err = s.mdTemplate.Parse(string(tpl))
 	if err != nil {
 		// couldn't parse template
-		os.Exit(5)
+		s.mdTemplate.Parse(defaultTpl)
 	}
 	s.secret = st.Secrets
 
