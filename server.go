@@ -25,8 +25,11 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	fp "path/filepath"
 	"strings"
+	"sync"
+	"syscall"
 	"text/template"
 	"time"
 
@@ -34,6 +37,8 @@ import (
 	"github.com/patrickmn/go-cache"
 	"github.com/russross/blackfriday"
 )
+
+var signalOnce sync.Once
 
 type server struct {
 	// path is the absolute path to the directory being served.
@@ -69,6 +74,24 @@ type server struct {
 		// key is the file name of the private key for the server.
 		key string
 	}
+}
+
+func (s *server) initiateCache() {
+	s.cache = cache.New(*s.ttl, time.Minute)
+	s.cache.OnEvicted(func(key string, _ interface{}) {
+		log.Printf("removed cached item for %s", key)
+	})
+	signalOnce.Do(func() {
+		sc := make(chan os.Signal, 1)
+		signal.Notify(sc, os.Signal(syscall.SIGUSR1))
+		go func() {
+			for {
+				<-sc
+				s.cache.Flush()
+				log.Println("received SIGUSR1, cache has been flushed")
+			}
+		}()
+	})
 }
 
 // checkAuth validates a request for proper authentication, given that the
@@ -113,10 +136,7 @@ func (s *server) sendChallenge(w http.ResponseWriter, req *http.Request, route s
 // serve runs the http server on the specified port.
 func (s *server) serve() {
 	if s.ttl != nil {
-		s.cache = cache.New(*s.ttl, time.Minute)
-		s.cache.OnEvicted(func(key string, _ interface{}) {
-			log.Printf("removed cached item for %s", key)
-		})
+		s.initiateCache()
 	}
 	if s.tls.port != "" {
 		go func() {
