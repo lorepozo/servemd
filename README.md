@@ -19,7 +19,19 @@ follows:
 
 ## Installation
 
-```
+#### Standalone
+
+__`servemd`__ can easily be installed as an executable. Download the latest
+[compiled binaries](https://github.com/lucasem/servemd/releases) and put it
+anywhere in your executable path (e.g. `/usr/local`).
+
+#### Source
+
+To install __`servemd`__ from source, you need to have a
+[Go development environment](http://golang.org/doc/install).
+If you've done Go development before and your $GOPATH/bin
+directory is already in your PATH:
+```sh
 go get github.com/lucasem/servemd
 ```
 
