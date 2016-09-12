@@ -28,7 +28,6 @@ import (
 	"os/signal"
 	fp "path/filepath"
 	"strings"
-	"sync"
 	"syscall"
 	"text/template"
 	"time"
@@ -37,8 +36,6 @@ import (
 	"github.com/patrickmn/go-cache"
 	"github.com/russross/blackfriday"
 )
-
-var signalOnce sync.Once
 
 type server struct {
 	// path is the absolute path to the directory being served.
@@ -81,17 +78,15 @@ func (s *server) initiateCache() {
 	s.cache.OnEvicted(func(key string, _ interface{}) {
 		log.Printf("removed cached item for %s", key)
 	})
-	signalOnce.Do(func() {
-		sc := make(chan os.Signal, 1)
-		signal.Notify(sc, os.Signal(syscall.SIGUSR1))
-		go func() {
-			for {
-				<-sc
-				s.cache.Flush()
-				log.Println("received SIGUSR1, cache has been flushed")
-			}
-		}()
-	})
+	sc := make(chan os.Signal, 1)
+	signal.Notify(sc, os.Signal(syscall.SIGUSR1))
+	go func() {
+		for {
+			<-sc
+			s.cache.Flush()
+			log.Println("received SIGUSR1, cache has been flushed")
+		}
+	}()
 }
 
 // checkAuth validates a request for proper authentication, given that the

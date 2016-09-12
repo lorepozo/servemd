@@ -79,11 +79,9 @@ Pug files are automatically rendered before a request is served.
 ### Caching
 Caching is enabled by setting `ttl` to a non-zero value (in minutes). If ttl
 is negative, the cache will never expire any cached response. The cache can
-be forced to flushed by sending SIGUSR1 to the __`servemd`__ process:
+be forced to empty by sending SIGUSR1 to the __`servemd`__ process:
 ```sh
-$ servemd settings.yaml &
-$ PID=$!
-$ kill -USR1 $PID  # clear the cache
+$ killall -USR1 servemd
 ```
 
 Caching is particularly useful when serving markdown and pug files, because
@@ -97,6 +95,7 @@ only the password needs to match.
 
 ### TLS
 The configuration __`servemd`__ uses for TLS yields an **A+** on SSL Labs!
+
 When specifying TLS, two servers (one HTTP and one HTTPS) will be spawned
 unless `tls.only` is set to `true`.
 
