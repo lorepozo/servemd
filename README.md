@@ -46,7 +46,7 @@ tls:                           # optional
   cert: fullchain.pem          # TLS required
   privkey: privkey.pem         # TLS required
   only: false                  # optional, defaults to false
-  required: secrets            # optional, 'all' or 'secrets'
+  required: secrets            # optional, 'all', 'secrets', or 'none' (default)
   port: 8443                   # optional, defaults to 443
 ```
 

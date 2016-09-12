@@ -18,6 +18,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 package main
 
 import (
+	"flag"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"os"
@@ -26,22 +28,44 @@ import (
 	"gopkg.in/yaml.v2"
 )
 
+const (
+	VERSION = "0.9"
+	USAGE   = `Usage of servemd:
+  servemd [--version | SETTINGS]
+
+  SETTINGS  	settings yaml file
+  --version  	show version
+
+  See https://github.com/lucasem/servemd for documentation.
+`
+)
+
+var versionFlag = flag.Bool("version", false, "show version")
+
 func main() {
-	if len(os.Args) < 2 {
-		// no settings file supplied
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, USAGE)
+	}
+	flag.Parse()
+	if *versionFlag {
+		fmt.Fprintln(os.Stderr, VERSION)
+		os.Exit(0)
+	}
+	if flag.NArg() < 1 {
+		fmt.Fprintln(os.Stderr, "no settings file supplied")
 		os.Exit(1)
 	}
-	set := os.Args[1]
+	set := flag.Arg(0)
 	stu, err := ioutil.ReadFile(set)
 	if err != nil {
-		// couldn't open settings file
-		os.Exit(2)
+		fmt.Fprintln(os.Stderr, "couldn't open settings file")
+		os.Exit(1)
 	}
 	st := settings{}
 	err = yaml.Unmarshal(stu, &st)
 	if err != nil {
-		// couldn't parse settings file
-		os.Exit(3)
+		fmt.Fprintln(os.Stderr, "couldn't parse settings file")
+		os.Exit(1)
 	}
 	stpath, _ := fp.Abs(fp.Dir(set))
 	if !fp.IsAbs(st.Dir) {

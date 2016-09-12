@@ -19,6 +19,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
@@ -159,14 +160,16 @@ func (st settings) toServer(logFile io.Writer) *server {
 	s.tls.key = st.TLS.Privkey
 	switch st.TLS.Required {
 	case "":
+		fallthrough
+	case "none":
 		s.tls.required = requiredNone
 	case "secrets":
 		s.tls.required = requiredSecrets
 	case "all":
 		s.tls.required = requiredAll
 	default:
-		// bad 'tls.required' field
-		os.Exit(6)
+		fmt.Fprintln(os.Stderr, "bad 'tls.required' field")
+		os.Exit(1)
 	}
 	return s
 }
