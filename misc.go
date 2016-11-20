@@ -23,11 +23,14 @@ import (
 	"io"
 	"io/ioutil"
 	"log"
-	"net/http"
+	"mime"
 	"os"
+	"path"
 	"strings"
 	"text/template"
 	"time"
+
+	"github.com/valyala/fasthttp"
 )
 
 const logf = "[%s %s] %d: %s"
@@ -60,32 +63,39 @@ const (
 	requiredAll
 )
 
-func handlerInternalError(err error) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		log.Printf(logf, r.Method, r.URL.Path, http.StatusInternalServerError, err.Error())
+func handlerInternalError(err error) fasthttp.RequestHandler {
+	return func(ctx *fasthttp.RequestCtx) {
+		ctx.Response.SetStatusCode(fasthttp.StatusInternalServerError)
+		ctx.Response.SetBodyString(err.Error())
+		log.Printf(logf, ctx.Method(), ctx.Path(), fasthttp.StatusInternalServerError, err.Error())
 	}
 }
 
-func handlerLiteralFile(path string) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFile(w, r, path)
-		log.Printf(logf, r.Method, r.URL.Path, http.StatusOK, "literal "+path)
+func handlerLiteralFile(pathStr string) fasthttp.RequestHandler {
+	return func(ctx *fasthttp.RequestCtx) {
+		mimeType := mime.TypeByExtension(path.Ext(pathStr))
+		if mimeType != "" {
+			ctx.Response.Header.Set("Content-Type", mimeType)
+		}
+		ctx.SendFile(pathStr)
+		log.Printf(logf, ctx.Method(), ctx.Path(), fasthttp.StatusOK, "literal "+pathStr)
 	}
 }
 
-func handlerNotFound() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		http.Error(w, "Not Found", http.StatusNotFound)
-		log.Printf(logf, r.Method, r.URL.Path, http.StatusNotFound, "")
+func handlerNotFound() fasthttp.RequestHandler {
+	return func(ctx *fasthttp.RequestCtx) {
+		ctx.Response.SetStatusCode(fasthttp.StatusNotFound)
+		ctx.Response.SetBodyString("Not Found")
+		log.Printf(logf, ctx.Method(), ctx.Path(), fasthttp.StatusInternalServerError, "Not Found")
 	}
 }
 
-func handlerReader(ident string, rd *bytes.Reader) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
+func handlerReader(ident string, rd *bytes.Reader) fasthttp.RequestHandler {
+	return func(ctx *fasthttp.RequestCtx) {
 		rd.Seek(0, 0)
-		rd.WriteTo(w)
-		log.Printf(logf, r.Method, r.URL.Path, http.StatusOK, ident)
+		rd.WriteTo(ctx)
+		ctx.Response.Header.Set("Content-Type", "text/html; charset=utf-8")
+		log.Printf(logf, ctx.Method(), ctx.Path(), fasthttp.StatusOK, ident)
 	}
 }
 

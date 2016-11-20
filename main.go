@@ -29,7 +29,7 @@ import (
 )
 
 const (
-	VERSION = "1.0.0"
+	VERSION = "1.0.1"
 	USAGE   = `Usage of servemd:
   servemd [--version | SETTINGS]
 

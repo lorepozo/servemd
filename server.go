@@ -23,7 +23,6 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
-	"net/http"
 	"os"
 	"os/signal"
 	fp "path/filepath"
@@ -35,6 +34,7 @@ import (
 	"github.com/Joker/jade"
 	"github.com/patrickmn/go-cache"
 	"github.com/russross/blackfriday"
+	"github.com/valyala/fasthttp"
 )
 
 type server struct {
@@ -91,8 +91,8 @@ func (s *server) initiateCache() {
 
 // checkAuth validates a request for proper authentication, given that the
 // route requires it (i.e. the route is a key in s.Secret).
-func (s *server) checkAuth(req *http.Request, route string) bool {
-	h := strings.SplitN(req.Header.Get("Authorization"), " ", 2)
+func (s *server) checkAuth(ctx *fasthttp.RequestCtx, route string) bool {
+	h := strings.SplitN(string(ctx.Request.Header.Peek("Authorization")), " ", 2)
 	if len(h) != 2 || h[0] != "Digest" {
 		return false
 	}
@@ -106,7 +106,7 @@ func (s *server) checkAuth(req *http.Request, route string) bool {
 	cnonce := digest["cnonce"]
 	qop := digest["qop"]
 	ha1b := md5.Sum([]byte(digest["username"] + ":" + realm + ":" + s.secret[route]))
-	ha2b := md5.Sum([]byte(req.Method + ":" + req.URL.Path))
+	ha2b := md5.Sum([]byte(fmt.Sprintf("%s:%s", ctx.Method(), ctx.Path())))
 	ha1 := fmt.Sprintf("%x", ha1b)
 	ha2 := fmt.Sprintf("%x", ha2b)
 	sd := strings.Join([]string{ha1, nonce, nc, cnonce, qop, ha2}, ":")
@@ -118,14 +118,16 @@ func (s *server) checkAuth(req *http.Request, route string) bool {
 // sendChallenge sends an authentication request according to the Digest
 // Access Authentication scheme per RFC 2617 using the WWW-Authenticate
 // header.
-func (s *server) sendChallenge(w http.ResponseWriter, req *http.Request, route string) {
+func (s *server) sendChallenge(ctx *fasthttp.RequestCtx, route string) {
 	realm := fmt.Sprintf(`realm="%s-%s"`, s.host, route)
 	qop := `qop="auth,auth-int"`
 	nonce := fmt.Sprintf(`nonce="%x"`, time.Now())
 	challenge := strings.Join([]string{realm, qop, nonce}, ", ")
-	w.Header().Set("WWW-Authenticate", "Digest "+challenge)
-	http.Error(w, "Unauthorized", http.StatusUnauthorized)
-	log.Printf(logf, req.Method, req.URL.Path, http.StatusUnauthorized, "challenge sent")
+	ctx.Response.Header.Set("WWW-Authenticate", "Digest "+challenge)
+
+	ctx.Response.SetStatusCode(fasthttp.StatusUnauthorized)
+	ctx.Response.SetBodyString("Unauthorized")
+	log.Printf(logf, ctx.Method(), ctx.Path(), fasthttp.StatusUnauthorized, "Unauthorized")
 }
 
 // serve runs the http server on the specified port.
@@ -136,26 +138,26 @@ func (s *server) serve() {
 	if s.tls.port != "" {
 		go func() {
 			log.Printf("starting HTTPS server on port %s", s.tls.port)
-			log.Fatal(http.ListenAndServeTLS(":"+s.tls.port, s.tls.cert, s.tls.key, s))
+			log.Fatal(fasthttp.ListenAndServeTLS(":"+s.tls.port, s.tls.cert, s.tls.key, s.ServeHTTP))
 		}()
 	}
 	if s.port != "" {
 		go func() {
 			log.Printf("starting HTTP server on port %s", s.port)
-			log.Fatal(http.ListenAndServe(":"+s.port, s))
+			log.Fatal(fasthttp.ListenAndServe(":"+s.port, s.ServeHTTP))
 		}()
 	}
 	// wait forever
 	<-make(chan struct{})
 }
 
-func (s *server) serveFilteredFile(w http.ResponseWriter, req *http.Request, filename string) {
-	var h http.HandlerFunc
+func (s *server) serveFilteredFile(ctx *fasthttp.RequestCtx, filename string) {
+	var h fasthttp.RequestHandler
 	defer func() {
 		if s.cache != nil {
-			s.cache.Set(req.URL.Path, h, cache.DefaultExpiration)
+			s.cache.Set(string(ctx.Path()), h, cache.DefaultExpiration)
 		}
-		h(w, req)
+		h(ctx)
 	}()
 	switch {
 	case strings.HasSuffix(filename, ".md"):
@@ -189,26 +191,27 @@ func (s *server) serveFilteredFile(w http.ResponseWriter, req *http.Request, fil
 // Authentication if necessary. Literal matches to the path are served
 // first, followed by files matching an implicit extension, and finally
 // a directory index if applicable.
-func (s *server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+func (s *server) ServeHTTP(ctx *fasthttp.RequestCtx) {
 	if s.tls.port != "" {
-		w.Header().Add("Strict-Transport-Security", "max-age=63072000")
+		ctx.Response.Header.Add("Strict-Transport-Security", "max-age=63072000")
 	}
-	if s.checkTLSRedirect(w, req, requiredAll) {
+	if s.checkTLSRedirect(ctx, requiredAll) {
 		return
 	}
 
-	if len(req.URL.Path) > 1 {
-		splits := strings.Split(req.URL.Path, "/")
+	pathStr := string(ctx.Path())
+	if len(pathStr) > 1 {
+		splits := strings.Split(pathStr, "/")
 		if len(splits) > 1 {
 			route := splits[1]
 			_, isSecret := s.secret[route]
 			if isSecret {
-				if s.checkTLSRedirect(w, req, requiredSecrets) {
+				if s.checkTLSRedirect(ctx, requiredSecrets) {
 					return
 				}
-				ok := s.checkAuth(req, route)
+				ok := s.checkAuth(ctx, route)
 				if !ok {
-					s.sendChallenge(w, req, route)
+					s.sendChallenge(ctx, route)
 					return
 				}
 			}
@@ -216,15 +219,15 @@ func (s *server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 
 	if s.cache != nil {
-		h, ok := s.cache.Get(req.URL.Path)
+		h, ok := s.cache.Get(pathStr)
 		if ok {
-			log.Printf("found in cache: %s", req.URL.Path)
-			h.(http.HandlerFunc)(w, req)
+			log.Printf("found in cache: %s", pathStr)
+			h.(fasthttp.RequestHandler)(ctx)
 			return
 		}
 	}
 
-	path := fp.Join(s.path, req.URL.Path)
+	path := fp.Join(s.path, pathStr)
 
 	// follow symbolic links
 	link, err := os.Readlink(path)
@@ -237,9 +240,9 @@ func (s *server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if err == nil && !fi.IsDir() {
 		h := handlerLiteralFile(path)
 		if s.cache != nil {
-			s.cache.Set(req.URL.Path, h, cache.DefaultExpiration)
+			s.cache.Set(pathStr, h, cache.DefaultExpiration)
 		}
-		h(w, req)
+		h(ctx)
 		return
 	}
 
@@ -247,9 +250,9 @@ func (s *server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		h := handlerNotFound()
 		if s.cache != nil {
-			s.cache.Set(req.URL.Path, h, cache.DefaultExpiration)
+			s.cache.Set(pathStr, h, cache.DefaultExpiration)
 		}
-		h(w, req)
+		h(ctx)
 		return
 	}
 
@@ -270,7 +273,7 @@ func (s *server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if filtered != "" {
 		// matching file found
 		filename := fp.Join(fp.Dir(path), filtered)
-		s.serveFilteredFile(w, req, filename)
+		s.serveFilteredFile(ctx, filename)
 		return
 	}
 
@@ -278,22 +281,22 @@ func (s *server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		h := handlerNotFound()
 		if s.cache != nil {
-			s.cache.Set(req.URL.Path, h, cache.DefaultExpiration)
+			s.cache.Set(pathStr, h, cache.DefaultExpiration)
 		}
-		h(w, req)
+		h(ctx)
 		return
 	}
 
 	// directory requested, force trailing "/"
-	if !strings.HasSuffix(req.URL.Path, "/") {
-		h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			http.Redirect(w, r, r.URL.Path+"/", http.StatusMovedPermanently)
-			log.Printf(logf, r.Method, r.URL.Path, http.StatusMovedPermanently, "")
+	if !strings.HasSuffix(pathStr, "/") {
+		h := fasthttp.RequestHandler(func(ctx *fasthttp.RequestCtx) {
+			ctx.Redirect(pathStr+"/", fasthttp.StatusMovedPermanently)
+			log.Printf(logf, ctx.Method(), pathStr, fasthttp.StatusMovedPermanently, "")
 		})
 		if s.cache != nil {
-			s.cache.Set(req.URL.Path, h, cache.DefaultExpiration)
+			s.cache.Set(pathStr, h, cache.DefaultExpiration)
 		}
-		h(w, req)
+		h(ctx)
 		return
 	}
 
@@ -315,21 +318,21 @@ func (s *server) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	if filtered != "" {
 		// matching file found
 		filename := fp.Join(path, filtered)
-		s.serveFilteredFile(w, req, filename)
+		s.serveFilteredFile(ctx, filename)
 		return
 	}
 
 	h := handlerNotFound()
 	if s.cache != nil {
-		s.cache.Set(req.URL.Path, h, cache.DefaultExpiration)
+		s.cache.Set(pathStr, h, cache.DefaultExpiration)
 	}
-	h(w, req)
+	h(ctx)
 }
 
-func (s *server) checkTLSRedirect(w http.ResponseWriter, req *http.Request, cond int) bool {
-	if s.tls.required != cond || req.TLS != nil {
+func (s *server) checkTLSRedirect(ctx *fasthttp.RequestCtx, cond int) bool {
+	if s.tls.required != cond || ctx.IsTLS() {
 		return false
 	}
-	http.Redirect(w, req, fmt.Sprintf("https://%s%s", s.host, req.URL.Path), http.StatusSeeOther)
+	ctx.Redirect(fmt.Sprintf("https://%s%s", s.host, ctx.Path()), fasthttp.StatusSeeOther)
 	return true
 }
