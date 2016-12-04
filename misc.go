@@ -86,7 +86,7 @@ func handlerNotFound() fasthttp.RequestHandler {
 	return func(ctx *fasthttp.RequestCtx) {
 		ctx.Response.SetStatusCode(fasthttp.StatusNotFound)
 		ctx.Response.SetBodyString("Not Found")
-		log.Printf(logf, ctx.Method(), ctx.Path(), fasthttp.StatusInternalServerError, "Not Found")
+		log.Printf(logf, ctx.Method(), ctx.Path(), fasthttp.StatusNotFound, "Not Found")
 	}
 }
 
@@ -96,6 +96,15 @@ func handlerReader(ident string, rd *bytes.Reader) fasthttp.RequestHandler {
 		rd.WriteTo(ctx)
 		ctx.Response.Header.Set("Content-Type", "text/html; charset=utf-8")
 		log.Printf(logf, ctx.Method(), ctx.Path(), fasthttp.StatusOK, ident)
+	}
+}
+
+func handlerRedirect(url string) fasthttp.RequestHandler {
+	url = strings.TrimSpace(url)
+	return func(ctx *fasthttp.RequestCtx) {
+		ctx.Response.SetStatusCode(fasthttp.StatusPermanentRedirect)
+		ctx.Response.Header.Set("Location", url)
+		log.Printf(logf, ctx.Method(), ctx.Path(), fasthttp.StatusPermanentRedirect, "")
 	}
 }
 

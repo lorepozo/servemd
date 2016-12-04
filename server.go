@@ -182,6 +182,12 @@ func (s *server) serveFilteredFile(ctx *fasthttp.RequestCtx, filename string) {
 		}
 		rd := bytes.NewReader([]byte(out))
 		h = handlerReader("pug "+filename, rd)
+	case strings.HasSuffix(filename, ".redirect"):
+		url, err := ioutil.ReadFile(filename)
+		if err != nil {
+			h = handlerInternalError(err)
+		}
+		h = handlerRedirect(string(url))
 	default:
 		h = handlerLiteralFile(filename)
 	}
