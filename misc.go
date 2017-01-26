@@ -21,7 +21,6 @@ import (
 	"bytes"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"mime"
 	"os"
 	"path"
@@ -31,8 +30,6 @@ import (
 
 	"github.com/valyala/fasthttp"
 )
-
-const logf = "[%s %s] %d: %s"
 
 const defaultTpl = `<!doctype html><html>
 <head><meta http-equiv="content-type" content="text/html; charset=utf-8"></head>
@@ -66,7 +63,6 @@ func handlerInternalError(err error) fasthttp.RequestHandler {
 	return func(ctx *fasthttp.RequestCtx) {
 		ctx.Response.SetStatusCode(fasthttp.StatusInternalServerError)
 		ctx.Response.SetBodyString(err.Error())
-		log.Printf(logf, ctx.Method(), ctx.Path(), fasthttp.StatusInternalServerError, err.Error())
 	}
 }
 
@@ -77,7 +73,6 @@ func handlerLiteralFile(pathStr string) fasthttp.RequestHandler {
 			ctx.Response.Header.Set("Content-Type", mimeType)
 		}
 		ctx.SendFile(pathStr)
-		log.Printf(logf, ctx.Method(), ctx.Path(), fasthttp.StatusOK, "literal "+pathStr)
 	}
 }
 
@@ -85,16 +80,14 @@ func handlerNotFound() fasthttp.RequestHandler {
 	return func(ctx *fasthttp.RequestCtx) {
 		ctx.Response.SetStatusCode(fasthttp.StatusNotFound)
 		ctx.Response.SetBodyString("Not Found")
-		log.Printf(logf, ctx.Method(), ctx.Path(), fasthttp.StatusNotFound, "Not Found")
 	}
 }
 
-func handlerReader(ident string, rd *bytes.Reader) fasthttp.RequestHandler {
+func handlerReader(rd *bytes.Reader) fasthttp.RequestHandler {
 	return func(ctx *fasthttp.RequestCtx) {
 		rd.Seek(0, 0)
 		rd.WriteTo(ctx)
 		ctx.Response.Header.Set("Content-Type", "text/html; charset=utf-8")
-		log.Printf(logf, ctx.Method(), ctx.Path(), fasthttp.StatusOK, ident)
 	}
 }
 
@@ -103,7 +96,6 @@ func handlerRedirect(url string) fasthttp.RequestHandler {
 	return func(ctx *fasthttp.RequestCtx) {
 		ctx.Response.SetStatusCode(fasthttp.StatusPermanentRedirect)
 		ctx.Response.Header.Set("Location", url)
-		log.Printf(logf, ctx.Method(), ctx.Path(), fasthttp.StatusPermanentRedirect, "")
 	}
 }
 

@@ -21,7 +21,6 @@ import (
 	"flag"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"os"
 	fp "path/filepath"
 
@@ -74,9 +73,6 @@ func main() {
 	if !fp.IsAbs(st.Template) {
 		st.Template = fp.Join(stpath, st.Template)
 	}
-	if st.Log != "" && !fp.IsAbs(st.Log) {
-		st.Log = fp.Join(stpath, st.Log)
-	}
 	if st.TLS.Cert != "" && !fp.IsAbs(st.TLS.Cert) {
 		st.TLS.Cert = fp.Join(stpath, st.TLS.Cert)
 	}
@@ -84,15 +80,5 @@ func main() {
 		st.TLS.Privkey = fp.Join(stpath, st.TLS.Privkey)
 	}
 
-	logFile := os.Stderr
-	if st.Log != "" {
-		f, err := os.OpenFile(st.Log, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
-		if err == nil {
-			defer f.Close()
-			logFile = f
-		}
-	}
-	log.SetOutput(logFile)
-	log.SetFlags(log.LstdFlags | log.Lshortfile)
 	st.toServer().serve()
 }

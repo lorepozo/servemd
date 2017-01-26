@@ -22,7 +22,6 @@ import (
 	"crypto/md5"
 	"fmt"
 	"io/ioutil"
-	"log"
 	"os"
 	"os/signal"
 	fp "path/filepath"
@@ -75,16 +74,12 @@ type server struct {
 
 func (s *server) initiateCache() {
 	s.cache = cache.New(*s.ttl, time.Minute)
-	s.cache.OnEvicted(func(key string, _ interface{}) {
-		log.Printf("removed cached item for %s", key)
-	})
 	sc := make(chan os.Signal, 1)
 	signal.Notify(sc, os.Signal(syscall.SIGUSR1))
 	go func() {
 		for {
 			<-sc
 			s.cache.Flush()
-			log.Println("received SIGUSR1, cache has been flushed")
 		}
 	}()
 }
@@ -97,7 +92,7 @@ func (s *server) checkAuth(ctx *fasthttp.RequestCtx, route string) bool {
 		return false
 	}
 	digest := parseHeader(h[1])
-	realm := s.host + `-` + route
+	realm := fmt.Sprintf("%s-%s", s.host, route)
 	if digest["realm"] != realm {
 		return false
 	}
@@ -105,7 +100,7 @@ func (s *server) checkAuth(ctx *fasthttp.RequestCtx, route string) bool {
 	nc := digest["nc"]
 	cnonce := digest["cnonce"]
 	qop := digest["qop"]
-	ha1b := md5.Sum([]byte(digest["username"] + ":" + realm + ":" + s.secret[route]))
+	ha1b := md5.Sum([]byte(fmt.Sprintf("%s:%s:%s", digest["username"], realm, s.secret[route])))
 	ha2b := md5.Sum([]byte(fmt.Sprintf("%s:%s", ctx.Method(), ctx.Path())))
 	ha1 := fmt.Sprintf("%x", ha1b)
 	ha2 := fmt.Sprintf("%x", ha2b)
@@ -127,7 +122,6 @@ func (s *server) sendChallenge(ctx *fasthttp.RequestCtx, route string) {
 
 	ctx.Response.SetStatusCode(fasthttp.StatusUnauthorized)
 	ctx.Response.SetBodyString("Unauthorized")
-	log.Printf(logf, ctx.Method(), ctx.Path(), fasthttp.StatusUnauthorized, "Unauthorized")
 }
 
 // serve runs the http server on the specified port.
@@ -137,14 +131,12 @@ func (s *server) serve() {
 	}
 	if s.tls.port != "" {
 		go func() {
-			log.Printf("starting HTTPS server on port %s", s.tls.port)
-			log.Fatal(fasthttp.ListenAndServeTLS(":"+s.tls.port, s.tls.cert, s.tls.key, s.ServeHTTP))
+			fasthttp.ListenAndServeTLS(":"+s.tls.port, s.tls.cert, s.tls.key, s.ServeHTTP)
 		}()
 	}
 	if s.port != "" {
 		go func() {
-			log.Printf("starting HTTP server on port %s", s.port)
-			log.Fatal(fasthttp.ListenAndServe(":"+s.port, s.ServeHTTP))
+			fasthttp.ListenAndServe(":"+s.port, s.ServeHTTP)
 		}()
 	}
 	// wait forever
@@ -171,7 +163,7 @@ func (s *server) serveFilteredFile(ctx *fasthttp.RequestCtx, filename string) {
 		buf := new(bytes.Buffer)
 		s.mdTemplate.Execute(buf, content)
 		rd := bytes.NewReader(buf.Bytes())
-		h = handlerReader("markdown "+filename, rd)
+		h = handlerReader(rd)
 	case strings.HasSuffix(filename, ".jade"):
 		fallthrough
 	case strings.HasSuffix(filename, ".pug"):
@@ -181,7 +173,7 @@ func (s *server) serveFilteredFile(ctx *fasthttp.RequestCtx, filename string) {
 			return
 		}
 		rd := bytes.NewReader([]byte(out))
-		h = handlerReader("pug "+filename, rd)
+		h = handlerReader(rd)
 	case strings.HasSuffix(filename, ".redirect"):
 		url, err := ioutil.ReadFile(filename)
 		if err != nil {
@@ -227,7 +219,6 @@ func (s *server) ServeHTTP(ctx *fasthttp.RequestCtx) {
 	if s.cache != nil {
 		h, ok := s.cache.Get(pathStr)
 		if ok {
-			log.Printf("found in cache: %s", pathStr)
 			h.(fasthttp.RequestHandler)(ctx)
 			return
 		}
@@ -297,7 +288,6 @@ func (s *server) ServeHTTP(ctx *fasthttp.RequestCtx) {
 	if !strings.HasSuffix(pathStr, "/") {
 		h := fasthttp.RequestHandler(func(ctx *fasthttp.RequestCtx) {
 			ctx.Redirect(pathStr+"/", fasthttp.StatusMovedPermanently)
-			log.Printf(logf, ctx.Method(), pathStr, fasthttp.StatusMovedPermanently, "")
 		})
 		if s.cache != nil {
 			s.cache.Set(pathStr, h, cache.DefaultExpiration)
