@@ -20,7 +20,6 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"io"
 	"io/ioutil"
 	"log"
 	"mime"
@@ -129,7 +128,7 @@ type settings struct {
 
 // toServer creates a server from the settings struct. The server host is
 // determined using the host name reported by the kernel.
-func (st settings) toServer(logFile io.Writer) *server {
+func (st settings) toServer() *server {
 	s := new(server)
 	s.path = st.Dir
 	if !st.TLS.Only {

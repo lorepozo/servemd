@@ -94,5 +94,5 @@ func main() {
 	}
 	log.SetOutput(logFile)
 	log.SetFlags(log.LstdFlags | log.Lshortfile)
-	st.toServer(logFile).serve()
+	st.toServer().serve()
 }
