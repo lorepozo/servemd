@@ -4,7 +4,7 @@ __`servemd`__ is an minimalist HTTP server which supports markdown, pug
 (formerly jade), authentication for secured paths, caching, and TLS. Files
 are served in accordance with their MIME type, allowing for native viewing
 (e.g.  PDFs or videos on mobile). The example directory shows typical usage
-(viewable live [here](https://docs.lucasem.com:8000)), which could look as
+(viewable live [here](https://docs.lorepozo.com:8000)), which could look as
 follows:
 
 ```sh
@@ -22,7 +22,7 @@ follows:
 #### Standalone
 
 __`servemd`__ can easily be installed as an executable. Download from the
-latest [compiled binaries](https://github.com/lucasem/servemd/releases) and
+latest [compiled binaries](https://github.com/lorepozo/servemd/releases) and
 put it anywhere in your executable path (e.g. `/usr/local`).
 
 #### Source
@@ -32,7 +32,7 @@ To install __`servemd`__ from source, you need to have a
 If you've done Go development before and your $GOPATH/bin
 directory is already in your PATH:
 ```sh
-go get github.com/lucasem/servemd
+go get github.com/lorepozo/servemd
 ```
 
 ## Usage

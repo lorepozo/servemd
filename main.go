@@ -1,5 +1,5 @@
 /*
-Copyright (C) 2016  Lucas Morales <lucas@lucasem.com>
+Copyright (C) 2016-2023  Lore Anaya Pozo
 
 This program is free software: you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published by
@@ -36,7 +36,7 @@ const (
   SETTINGS  	settings yaml file
   --version  	show version
 
-  See https://github.com/lucasem/servemd for documentation.
+  See https://github.com/lorepozo/servemd for documentation.
 `
 )
 
